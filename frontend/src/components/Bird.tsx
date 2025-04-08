@@ -1,43 +1,29 @@
 import React from 'react';
 import styled from 'styled-components';
+import birdImage from '../assets/images/bird.png';
 
-const BirdSprite = styled.div`
+const BirdSprite = styled.div<{ x: number; y: number }>`
   width: 40px;
   height: 40px;
-  background-color: #FFD700;
-  border-radius: 50%;
   position: absolute;
-  left: 25%;
-  top: 50%;
+  left: ${props => props.x}px;
+  top: ${props => props.y}px;
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
   z-index: 1;
-
-  &::before {
-    content: '';
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    background-color: #000;
-    border-radius: 50%;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    width: 20px;
-    height: 8px;
-    background-color: #FFA500;
-    border-radius: 4px;
-    top: 60%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
+  background-image: url(${birdImage});
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  image-rendering: pixelated;
 `;
 
-export const Bird: React.FC = () => {
-    return <BirdSprite />;
+interface BirdProps {
+    position: {
+        x: number;
+        y: number;
+    };
+}
+
+export const Bird: React.FC<BirdProps> = ({ position }) => {
+    return <BirdSprite x={position.x} y={position.y} />;
 }; 

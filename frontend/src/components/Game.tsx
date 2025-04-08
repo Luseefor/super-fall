@@ -5,19 +5,61 @@ import { Bird } from './Bird';
 import { Pipe } from './Pipe';
 import { Score } from './Score';
 import { SplashScreen } from './SplashScreen';
+import backgroundImage from '../assets/images/background.png';
 
 const GameContainer = styled.div`
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(to bottom, #87CEEB, #E0F6FF);
-  position: relative;
+  background-color: #87CEEB;  /* Fallback color */
+  background-image: url(${backgroundImage});
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 `;
 
 const GameCanvas = styled.div`
   width: 100%;
   height: 100%;
   position: relative;
+  overflow: hidden;
+
+  &.game-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+  }
+
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
+`;
+
+const GameElements = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 `;
 
 const StartButton = styled.button`
@@ -56,6 +98,7 @@ export const Game: React.FC = () => {
     const [score, setScore] = useState(0);
     const [highScore, setHighScore] = useState(0);
     const [isGameOver, setIsGameOver] = useState(false);
+    const [birdPosition, setBirdPosition] = useState({ x: 0, y: 0 });
     const gameRef = useRef<GameEngine | null>(null);
 
     useEffect(() => {
@@ -74,7 +117,6 @@ export const Game: React.FC = () => {
         setIsGameOver(true);
         if (score > highScore) {
             setHighScore(score);
-            // Save new high score to backend
             try {
                 await fetch('http://localhost:8000/high-scores', {
                     method: 'POST',
@@ -96,28 +138,44 @@ export const Game: React.FC = () => {
         setScore(prev => prev + 1);
     };
 
-    const startGame = () => {
-        setShowSplash(false);
-        setIsGameStarted(true);
-        setIsGameOver(false);
-        setScore(0);
-        if (gameRef.current) {
-            gameRef.current.start();
-        }
-    };
+    // Add effect to update bird position
+    useEffect(() => {
+        if (!gameRef.current) return;
+
+        const updateBirdPosition = () => {
+            if (gameRef.current) {
+                const bird = gameRef.current.getBird();
+                if (bird) {
+                    setBirdPosition({
+                        x: bird.position.x,
+                        y: bird.position.y
+                    });
+                }
+            }
+            requestAnimationFrame(updateBirdPosition);
+        };
+
+        updateBirdPosition();
+    }, [isGameStarted]);
 
     useEffect(() => {
-        gameRef.current = new GameEngine({
-            onGameOver: handleGameOver,
-            onScore: handleScore,
-        });
+        // Initialize game engine only once
+        if (!gameRef.current) {
+            console.log('Creating new game engine...');
+            gameRef.current = new GameEngine({
+                onGameOver: handleGameOver,
+                onScore: handleScore,
+            });
+        }
 
         const handleKeyPress = (event: KeyboardEvent) => {
             if (event.code === 'Space') {
                 event.preventDefault();
-                if (showSplash) {
+                console.log('Space key pressed, game state:', { showSplash, isGameOver });
+                if (showSplash || isGameOver) {
                     startGame();
                 } else if (gameRef.current) {
+                    console.log('Flapping bird...');
                     gameRef.current.flap();
                 }
             }
@@ -128,10 +186,39 @@ export const Game: React.FC = () => {
         return () => {
             window.removeEventListener('keydown', handleKeyPress);
             if (gameRef.current) {
+                console.log('Cleaning up game engine...');
                 gameRef.current.cleanup();
+                gameRef.current = null;
             }
         };
-    }, [handleGameOver, showSplash]);
+    }, []); // Remove dependencies to prevent recreation
+
+    const startGame = useCallback(() => {
+        console.log('Starting game...');
+        setShowSplash(false);
+        setIsGameStarted(true);
+        setIsGameOver(false);
+        setScore(0);
+
+        // Ensure game engine is initialized
+        if (!gameRef.current) {
+            console.log('Creating new game engine for game start...');
+            gameRef.current = new GameEngine({
+                onGameOver: handleGameOver,
+                onScore: handleScore,
+            });
+        }
+
+        // Start the game
+        console.log('Starting game engine...');
+        gameRef.current.start();
+    }, [handleGameOver, handleScore]);
+
+    // Add effect to preload background image
+    useEffect(() => {
+        const img = new Image();
+        img.src = backgroundImage;
+    }, []);
 
     return (
         <GameContainer>
@@ -139,19 +226,20 @@ export const Game: React.FC = () => {
                 <SplashScreen onStart={startGame} />
             ) : (
                 <>
-                    <GameCanvas>
+                    <GameCanvas className="game-canvas" />
+                    <GameElements>
                         {isGameStarted && (
                             <>
-                                <Bird />
+                                <Bird position={birdPosition} />
                                 <Pipe gapPosition={200} gapSize={150} />
                                 <Score score={score} highScore={highScore} />
                             </>
                         )}
-                    </GameCanvas>
+                    </GameElements>
                     {isGameOver && <GameOverText>Game Over!</GameOverText>}
                     {(!isGameStarted || isGameOver) && (
                         <StartButton onClick={startGame}>
-                            {isGameOver ? 'Play Again' : 'Start Game'}
+                            {isGameOver ? 'Play Again' : 'Press Space to Start'}
                         </StartButton>
                     )}
                 </>
