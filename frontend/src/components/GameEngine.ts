@@ -1,4 +1,5 @@
-import Matter from 'matter-js';
+import birdImage from '../assets/images/bird.png';
+import pipeImage from '../assets/images/pipe.png';
 
 interface GameEngineProps {
     onGameOver: () => void;
@@ -6,16 +7,33 @@ interface GameEngineProps {
 }
 
 export class GameEngine {
-    private engine!: Matter.Engine;
-    private render!: Matter.Render;
-    private bird!: Matter.Body;
-    private pipes: Matter.Body[];
-    private ground!: Matter.Body;
-    private ceiling!: Matter.Body;
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
+    private bird: {
+        x: number;
+        y: number;
+        velocity: number;
+        rotation: number;
+        width: number;
+        height: number;
+    };
+    private pipes: Array<{
+        x: number;
+        gapY: number;
+        gapHeight: number;
+        scored: boolean;
+    }>;
     private score: number;
     private isGameOver: boolean;
+    private hasStartedPlaying: boolean = false;
     private props: GameEngineProps;
-    private readonly pipeWidth: number = 60;
+    private readonly pipeWidth: number = 80;
+    private readonly pipeGap: number = 200;
+    private readonly pipeSpacing: number = 300; // Horizontal space between pipes
+    private animationFrameId: number = 0;
+    private birdImage: HTMLImageElement;
+    private pipeImage: HTMLImageElement;
+    private pipeGenerationInterval: number | null = null;
 
     constructor(props: GameEngineProps) {
         this.props = props;
@@ -23,216 +41,214 @@ export class GameEngine {
         this.isGameOver = false;
         this.pipes = [];
 
-        console.log('Initializing game engine...');
+        // Create canvas
+        this.canvas = document.createElement('canvas');
+        this.canvas.style.position = 'absolute';
+        this.canvas.style.top = '0';
+        this.canvas.style.left = '0';
+        this.canvas.style.width = '100%';
+        this.canvas.style.height = '100%';
+        document.body.appendChild(this.canvas);
 
-        // Create Matter.js engine
-        this.engine = Matter.Engine.create();
-        this.engine.world.gravity.y = 0.5;
+        // Get context
+        const context = this.canvas.getContext('2d');
+        if (!context) throw new Error('Could not get canvas context');
+        this.ctx = context;
 
-        // Create renderer
-        const canvasElement = document.querySelector('.game-canvas') as HTMLElement;
-        if (!canvasElement) {
-            console.error('Game canvas element not found!');
+        // Load images
+        this.birdImage = new Image();
+        this.birdImage.src = birdImage;
+
+        this.pipeImage = new Image();
+        this.pipeImage.src = pipeImage;
+
+        // Initialize bird
+        this.bird = {
+            x: window.innerWidth / 4,
+            y: window.innerHeight / 2,
+            velocity: 0,
+            rotation: 0,
+            width: 40,
+            height: 30
+        };
+
+        // Handle window resize
+        window.addEventListener('resize', () => this.resizeCanvas());
+        this.resizeCanvas();
+
+        // Start game loop
+        this.gameLoop();
+    }
+
+    private resizeCanvas() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    }
+
+    private gameLoop = () => {
+        if (!this.isGameOver) {
+            this.update();
+        }
+        this.draw();
+        this.animationFrameId = requestAnimationFrame(this.gameLoop);
+    };
+
+    private update() {
+        // Only apply gravity and update bird position if game has actually started
+        if (this.hasStartedPlaying) {
+            this.bird.velocity += 0.5;
+            this.bird.y += this.bird.velocity;
+            this.bird.rotation = Math.min(Math.PI / 2, Math.max(-Math.PI / 2, this.bird.rotation + this.bird.velocity * 0.1));
+
+            // Update pipes only when game has started
+            for (let i = this.pipes.length - 1; i >= 0; i--) {
+                const pipe = this.pipes[i];
+                pipe.x -= 2;
+
+                // Check if bird has passed the pipe for scoring
+                if (!pipe.scored && pipe.x + this.pipeWidth < this.bird.x) {
+                    pipe.scored = true;
+                    this.score++;
+                    this.props.onScore();
+                }
+
+                // Remove pipes that are off screen
+                if (pipe.x < -this.pipeWidth) {
+                    this.pipes.splice(i, 1);
+                }
+            }
+
+            // Generate new pipes
+            const lastPipe = this.pipes[this.pipes.length - 1];
+            if (!lastPipe || lastPipe.x <= this.canvas.width - this.pipeSpacing) {
+                this.createPipe();
+            }
+        }
+
+        // Check collisions only if game has started
+        if (this.hasStartedPlaying) {
+            this.checkCollisions();
+        }
+    }
+
+    private checkCollisions() {
+        // Ground and ceiling collisions
+        if (this.bird.y + this.bird.height > this.canvas.height || this.bird.y < 0) {
+            this.gameOver();
             return;
         }
 
-        this.render = Matter.Render.create({
-            element: canvasElement,
-            engine: this.engine,
-            options: {
-                width: window.innerWidth,
-                height: window.innerHeight,
-                wireframes: false,
-                background: 'transparent'
-            }
-        });
-
-        // Create bird
-        this.bird = Matter.Bodies.circle(
-            window.innerWidth / 4,
-            window.innerHeight / 2,
-            20,
-            {
-                render: {
-                    fillStyle: '#FFD700',
-                    visible: true
-                },
-                friction: 0.1,
-                restitution: 0.6,
-                density: 0.001,
-                label: 'bird',
-                inertia: Infinity,
-                frictionAir: 0.001
-            }
-        );
-
-        // Create ground and ceiling
-        this.ground = Matter.Bodies.rectangle(
-            window.innerWidth / 2,
-            window.innerHeight + 30,
-            window.innerWidth,
-            60,
-            {
-                isStatic: true,
-                render: {
-                    fillStyle: '#2E8B57',
-                    visible: false
-                }
-            }
-        );
-
-        this.ceiling = Matter.Bodies.rectangle(
-            window.innerWidth / 2,
-            -30,
-            window.innerWidth,
-            60,
-            {
-                isStatic: true,
-                render: {
-                    fillStyle: '#2E8B57',
-                    visible: false
-                }
-            }
-        );
-
-        // Add all bodies to the world
-        Matter.World.add(this.engine.world, [this.bird, this.ground, this.ceiling]);
-
-        // Add collision detection
-        Matter.Events.on(this.engine, 'collisionStart', (event) => {
-            event.pairs.forEach((pair) => {
-                if (
-                    (pair.bodyA.label === 'bird' && pair.bodyB.label === 'pipe') ||
-                    (pair.bodyA.label === 'pipe' && pair.bodyB.label === 'bird')
-                ) {
+        // Pipe collisions
+        for (const pipe of this.pipes) {
+            if (this.bird.x + this.bird.width > pipe.x && this.bird.x < pipe.x + this.pipeWidth) {
+                // Check collision with upper pipe (only the visible part)
+                const upperPipeHeight = pipe.gapY;
+                if (this.bird.y < upperPipeHeight) {
                     this.gameOver();
+                    return;
                 }
-            });
-        });
 
-        // Start the engine and renderer
-        Matter.Runner.run(this.engine);
-        Matter.Render.run(this.render);
-        console.log('Game engine initialized and running');
+                // Check collision with lower pipe (only the visible part)
+                const lowerPipeStart = pipe.gapY + pipe.gapHeight;
+                if (this.bird.y + this.bird.height > lowerPipeStart) {
+                    this.gameOver();
+                    return;
+                }
+            }
+        }
     }
 
-    public start = () => {
-        console.log('Starting game...');
+    private draw() {
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw pipes
+        this.pipes.forEach(pipe => {
+            // Upper pipe (flipped)
+            this.ctx.save();
+            this.ctx.translate(pipe.x + this.pipeWidth / 2, pipe.gapY);
+            this.ctx.scale(1, -1);
+            this.ctx.drawImage(
+                this.pipeImage,
+                -this.pipeWidth / 2,
+                0,
+                this.pipeWidth,
+                pipe.gapY
+            );
+            this.ctx.restore();
+
+            // Lower pipe
+            this.ctx.drawImage(
+                this.pipeImage,
+                pipe.x,
+                pipe.gapY + pipe.gapHeight,
+                this.pipeWidth,
+                this.canvas.height - (pipe.gapY + pipe.gapHeight)
+            );
+        });
+
+        // Draw bird
+        this.ctx.save();
+        this.ctx.translate(this.bird.x + this.bird.width / 2, this.bird.y + this.bird.height / 2);
+        this.ctx.rotate(this.bird.rotation);
+        this.ctx.drawImage(
+            this.birdImage,
+            -this.bird.width / 2,
+            -this.bird.height / 2,
+            this.bird.width,
+            this.bird.height
+        );
+        this.ctx.restore();
+    }
+
+    public start() {
         this.score = 0;
         this.isGameOver = false;
+        this.hasStartedPlaying = false;
+        this.pipes = [];
+        this.bird.y = this.canvas.height / 2;
+        this.bird.velocity = 0;
+        this.bird.rotation = 0;
+        this.startPipeGeneration();
+    }
 
-        // Clear existing pipes
-        this.pipes.forEach(pipe => {
-            Matter.World.remove(this.engine.world, pipe);
-        });
+    public flap() {
+        if (!this.isGameOver) {
+            this.hasStartedPlaying = true;
+            this.bird.velocity = -8;
+            this.bird.rotation = -Math.PI / 4;
+        }
+    }
+
+    private startPipeGeneration() {
+        // Clear any existing pipes
         this.pipes = [];
 
-        // Reset bird position and velocity
-        Matter.Body.setPosition(this.bird, {
-            x: window.innerWidth / 4,
-            y: window.innerHeight / 2
+        // Create initial pipe
+        this.createPipe();
+    }
+
+    private createPipe() {
+        const gapY = Math.random() * (this.canvas.height - this.pipeGap - 200) + 100;
+        this.pipes.push({
+            x: this.canvas.width,
+            gapY,
+            gapHeight: this.pipeGap,
+            scored: false
         });
-        Matter.Body.setVelocity(this.bird, { x: 0, y: 0 });
-        Matter.Body.setAngularVelocity(this.bird, 0);
+    }
 
-        // Ensure engine is running
-        Matter.Runner.run(this.engine);
-        Matter.Render.run(this.render);
-        console.log('Game started, bird position:', this.bird.position);
-
-        this.startPipeGeneration();
-    };
-
-    public flap = () => {
-        if (!this.isGameOver) {
-            console.log('Flapping! Current velocity:', this.bird.velocity);
-            Matter.Body.setVelocity(this.bird, { x: 0, y: -10 });
-            console.log('New velocity:', this.bird.velocity);
-        }
-    };
-
-    private createPipe = () => {
-        const gap = 150;
-        const gapPosition = Math.random() * (window.innerHeight - gap - 200) + 100;
-
-        const upperPipe = Matter.Bodies.rectangle(
-            window.innerWidth + this.pipeWidth,
-            gapPosition / 2,
-            this.pipeWidth,
-            gapPosition,
-            {
-                isStatic: true,
-                render: {
-                    fillStyle: '#2E8B57',
-                    visible: false
-                },
-                label: 'pipe'
-            }
-        );
-
-        const lowerPipe = Matter.Bodies.rectangle(
-            window.innerWidth + this.pipeWidth,
-            gapPosition + gap + (window.innerHeight - gapPosition - gap) / 2,
-            this.pipeWidth,
-            window.innerHeight - gapPosition - gap,
-            {
-                isStatic: true,
-                render: {
-                    fillStyle: '#2E8B57',
-                    visible: false
-                },
-                label: 'pipe'
-            }
-        );
-
-        Matter.World.add(this.engine.world, [upperPipe, lowerPipe]);
-        this.pipes.push(upperPipe, lowerPipe);
-    };
-
-    private startPipeGeneration = () => {
-        // Create initial pipes
-        for (let i = 0; i < 3; i++) {
-            setTimeout(() => {
-                this.createPipe();
-            }, i * 1500);
-        }
-
-        // Move pipes continuously
-        Matter.Events.on(this.engine, 'beforeUpdate', () => {
-            if (this.isGameOver) return;
-
-            this.pipes.forEach((pipe, index) => {
-                Matter.Body.translate(pipe, { x: -2, y: 0 });
-
-                // Remove pipes that are off screen
-                if (pipe.position.x < -this.pipeWidth) {
-                    Matter.World.remove(this.engine.world, pipe);
-                    this.pipes.splice(index, 1);
-                    this.props.onScore();
-                }
-            });
-        });
-
-        // Generate new pipes
-        setInterval(() => {
-            if (!this.isGameOver) {
-                this.createPipe();
-            }
-        }, 1500);
-    };
-
-    private gameOver = () => {
+    private gameOver() {
         this.isGameOver = true;
         this.props.onGameOver();
-    };
+    }
 
-    public cleanup = () => {
-        Matter.Render.stop(this.render);
-        Matter.Engine.clear(this.engine);
-        this.render.canvas.remove();
-    };
+    public cleanup() {
+        cancelAnimationFrame(this.animationFrameId);
+        this.canvas.remove();
+    }
 
-    public getBird = () => {
+    public getBird() {
         return this.bird;
-    };
+    }
 } 
