@@ -34,6 +34,9 @@ export class GameEngine {
     private birdImage: HTMLImageElement;
     private pipeImage: HTMLImageElement;
     private pipeGenerationInterval: number | null = null;
+    private lastFrameTime: number = 0;
+    private readonly targetFPS: number = 60;
+    private readonly frameInterval: number = 1000 / this.targetFPS;
 
     constructor(props: GameEngineProps) {
         this.props = props;
@@ -86,31 +89,38 @@ export class GameEngine {
     }
 
     private gameLoop = () => {
-        if (!this.isGameOver) {
-            this.update();
+        const currentTime = performance.now();
+        const elapsed = currentTime - this.lastFrameTime;
+
+        if (elapsed > this.frameInterval) {
+            if (!this.isGameOver) {
+                this.update();
+            }
+            this.draw();
+            this.lastFrameTime = currentTime - (elapsed % this.frameInterval);
         }
-        this.draw();
+
         this.animationFrameId = requestAnimationFrame(this.gameLoop);
     };
 
     private update() {
         // Only apply gravity and update bird position if game has actually started
         if (this.hasStartedPlaying) {
-            this.bird.velocity += 0.5;
+            // Apply gravity with frame rate independence
+            this.bird.velocity += 0.5 * (this.frameInterval / 16.67); // Normalize to 60fps
             this.bird.y += this.bird.velocity;
             this.bird.rotation = Math.min(Math.PI / 2, Math.max(-Math.PI / 2, this.bird.rotation + this.bird.velocity * 0.1));
 
             // Update pipes only when game has started
             for (let i = this.pipes.length - 1; i >= 0; i--) {
                 const pipe = this.pipes[i];
-                pipe.x -= 2;
+                pipe.x -= 2 * (this.frameInterval / 16.67); // Normalize to 60fps
 
                 // Check if bird has passed the pipe for scoring
                 if (!pipe.scored && pipe.x + this.pipeWidth < this.bird.x) {
                     pipe.scored = true;
                     this.score++;
                     this.props.onScore();
-                    console.log('Score updated:', this.score); // Debug log
                 }
 
                 // Remove pipes that are off screen
@@ -201,13 +211,6 @@ export class GameEngine {
             this.bird.height
         );
         this.ctx.restore();
-
-        // Debug: Draw pipe positions
-        this.pipes.forEach(pipe => {
-            this.ctx.fillStyle = 'red';
-            this.ctx.fillRect(pipe.x, pipe.gapY, 5, 5);
-            this.ctx.fillRect(pipe.x, pipe.gapY + pipe.gapHeight, 5, 5);
-        });
     }
 
     public start() {
