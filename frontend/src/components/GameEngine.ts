@@ -110,6 +110,7 @@ export class GameEngine {
                     pipe.scored = true;
                     this.score++;
                     this.props.onScore();
+                    console.log('Score updated:', this.score); // Debug log
                 }
 
                 // Remove pipes that are off screen
@@ -117,17 +118,18 @@ export class GameEngine {
                     this.pipes.splice(i, 1);
                 }
             }
-
-            // Generate new pipes
-            const lastPipe = this.pipes[this.pipes.length - 1];
-            if (!lastPipe || lastPipe.x <= this.canvas.width - this.pipeSpacing) {
-                this.createPipe();
-            }
         }
 
         // Check collisions only if game has started
         if (this.hasStartedPlaying) {
             this.checkCollisions();
+        }
+    }
+
+    private ensurePipes() {
+        const lastPipe = this.pipes[this.pipes.length - 1];
+        if (!lastPipe || lastPipe.x <= this.canvas.width - this.pipeSpacing) {
+            this.createPipe();
         }
     }
 
@@ -199,6 +201,13 @@ export class GameEngine {
             this.bird.height
         );
         this.ctx.restore();
+
+        // Debug: Draw pipe positions
+        this.pipes.forEach(pipe => {
+            this.ctx.fillStyle = 'red';
+            this.ctx.fillRect(pipe.x, pipe.gapY, 5, 5);
+            this.ctx.fillRect(pipe.x, pipe.gapY + pipe.gapHeight, 5, 5);
+        });
     }
 
     public start() {
@@ -209,7 +218,9 @@ export class GameEngine {
         this.bird.y = this.canvas.height / 2;
         this.bird.velocity = 0;
         this.bird.rotation = 0;
-        this.startPipeGeneration();
+        // Create initial pipe immediately
+        this.createPipe();
+        console.log('Game started, initial pipe created');
     }
 
     public flap() {
@@ -217,25 +228,45 @@ export class GameEngine {
             this.hasStartedPlaying = true;
             this.bird.velocity = -8;
             this.bird.rotation = -Math.PI / 4;
+            // Start pipe generation when first flap occurs
+            this.startPipeGeneration();
+            console.log('First flap, starting pipe generation');
         }
     }
 
     private startPipeGeneration() {
-        // Clear any existing pipes
-        this.pipes = [];
+        // Clear any existing interval
+        if (this.pipeGenerationInterval) {
+            clearInterval(this.pipeGenerationInterval);
+            console.log('Cleared existing pipe generation interval');
+        }
 
         // Create initial pipe
         this.createPipe();
+
+        // Set up interval for continuous pipe generation
+        this.pipeGenerationInterval = window.setInterval(() => {
+            if (!this.isGameOver && this.hasStartedPlaying) {
+                this.createPipe();
+            }
+        }, 2000); // Generate new pipe every 2 seconds
+        console.log('Started pipe generation interval');
     }
 
     private createPipe() {
-        const gapY = Math.random() * (this.canvas.height - this.pipeGap - 200) + 100;
-        this.pipes.push({
-            x: this.canvas.width,
-            gapY,
-            gapHeight: this.pipeGap,
-            scored: false
-        });
+        // Only create a new pipe if there's enough space from the last pipe
+        const lastPipe = this.pipes[this.pipes.length - 1];
+        if (!lastPipe || lastPipe.x <= this.canvas.width - this.pipeSpacing) {
+            const gapY = Math.random() * (this.canvas.height - this.pipeGap - 200) + 100;
+            const newPipe = {
+                x: this.canvas.width,
+                gapY,
+                gapHeight: this.pipeGap,
+                scored: false
+            };
+            this.pipes.push(newPipe);
+            console.log('Created new pipe:', newPipe);
+        }
     }
 
     private gameOver() {

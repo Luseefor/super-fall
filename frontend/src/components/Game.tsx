@@ -64,47 +64,66 @@ export const Game: React.FC = () => {
     const gameEngine = useRef<GameEngine | null>(null);
 
     useEffect(() => {
-        // Fetch high score from backend
-        fetch('http://localhost:8000/high-scores')
-            .then(response => response.json())
-            .then(data => {
-                if (data.high_scores && data.high_scores.length > 0) {
-                    setHighScore(data.high_scores[0].score);
-                }
-            })
-            .catch(error => console.error('Error fetching high scores:', error));
+        // Fetch initial high score
+        const fetchHighScore = async () => {
+            try {
+                const response = await fetch('http://localhost:8000/high-scores');
+                const data = await response.json();
+                const scores = data.high_scores || [];
+                const maxScore = Math.max(...scores.map((s: any) => s.score), 0);
+                setHighScore(maxScore);
+                console.log('Initial high score:', maxScore);
+            } catch (error) {
+                console.error('Error fetching high scores:', error);
+            }
+        };
+        fetchHighScore();
     }, []);
 
     const handleScore = () => {
-        setScore(prevScore => prevScore + 1);
-    };
-
-    const submitScore = async (finalScore: number) => {
-        if (finalScore > highScore) {
-            setHighScore(finalScore);
-            try {
-                await fetch('http://localhost:8000/high-scores', {
+        setScore(prevScore => {
+            const newScore = prevScore + 1;
+            if (newScore > highScore) {
+                setHighScore(newScore);
+                // Save new high score to backend immediately
+                fetch('http://localhost:8000/high-scores', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        score: finalScore,
+                        score: newScore,
                         player_name: 'Player'
-                    }),
-                });
-            } catch (error) {
-                console.error('Error saving high score:', error);
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('High score saved:', data);
+                    })
+                    .catch(error => {
+                        console.error('Error saving high score:', error);
+                    });
             }
-        }
+            return newScore;
+        });
     };
 
     const handleGameOver = () => {
         setIsGameOver(true);
-        if (gameEngine.current) {
-            const finalScore = score;
-            submitScore(finalScore);
-        }
+        setIsGameStarted(false);
+
+        // Refresh high scores after game over
+        fetch('http://localhost:8000/high-scores')
+            .then(response => response.json())
+            .then(data => {
+                const scores = data.high_scores || [];
+                const maxScore = Math.max(...scores.map((s: any) => s.score), 0);
+                setHighScore(maxScore);
+                console.log('Updated high score:', maxScore);
+            })
+            .catch(error => {
+                console.error('Error fetching high scores:', error);
+            });
     };
 
     const handleStart = () => {
